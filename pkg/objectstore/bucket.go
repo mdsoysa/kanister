@@ -21,7 +21,10 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/graymeta/stow"
 	"github.com/pkg/errors"
@@ -190,7 +193,10 @@ func s3BucketRegion(ctx context.Context, cfg ProviderConfig, sec Secret, bucketN
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to create session, region = %s", r)
 	}
-	return s3manager.GetBucketRegion(ctx, s, bucketName, cfg.Region)
+	svc := s3.New(s)
+	return s3manager.GetBucketRegionWithClient(ctx, svc, bucketName, func(r *request.Request) {
+		r.Config.S3ForcePathStyle = aws.Bool(false)
+	})
 }
 
 func (p *s3Provider) getOrCreateBucket(ctx context.Context, bucketName string) (Bucket, error) {
@@ -205,14 +211,14 @@ func (p *s3Provider) getOrCreateBucket(ctx context.Context, bucketName string) (
 func bucketEndpoint(c ProviderConfig, id string) string {
 	e := c.Endpoint
 	if c.Type == ProviderTypeS3 {
-		e = s3Endpoint(c)
+		e = s3Endpoint(id, c)
 	}
 	return path.Join(e, id)
 }
 
 const defaultS3region = "us-east-1"
 
-func s3Endpoint(c ProviderConfig) string {
+func s3Endpoint(id string, c ProviderConfig) string {
 	if c.Endpoint != "" {
 		return c.Endpoint
 	}
@@ -220,15 +226,15 @@ func s3Endpoint(c ProviderConfig) string {
 	if c.Region != "" {
 		r = c.Region
 	}
-	return awsS3Endpoint(r)
+	return awsS3Endpoint(id, r)
 }
 
 // Stow uses path-style requests when specifying an endpoint.
 // https://docs.aws.amazon.com/AmazonS3/latest/dev/VirtualHosting.html#path-style-access
 // https://github.com/graymeta/stow/blob/master/s3/config.go#L159
 
-const awsS3EndpointFmt = "https://s3.%s.amazonaws.com"
+const awsS3EndpointFmt = "https://%s.s3.%s.amazonaws.com"
 
-func awsS3Endpoint(region string) string {
-	return fmt.Sprintf(awsS3EndpointFmt, region)
+func awsS3Endpoint(id string, region string) string {
+	return fmt.Sprintf(awsS3EndpointFmt, id, region)
 }
